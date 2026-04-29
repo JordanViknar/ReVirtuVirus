@@ -76,7 +76,7 @@ def defineGUI():
 
 	# Add VirtuVirus Logo on top
 	logoFile = Image.open(application_path+"assets/icon.png")
-	logoFile = logoFile.resize((int(defaultConfigVars.WIDTH/5.2), int(defaultConfigVars.HEIGHT/4)), Image.ANTIALIAS)
+	logoFile = logoFile.resize((int(defaultConfigVars.WIDTH/5.2), int(defaultConfigVars.HEIGHT/4)), Image.Resampling.LANCZOS)
 	logoFile = ImageTk.PhotoImage(logoFile)
 	logoLabel = tk.Label(controlZone, image=logoFile)
 	logoLabel.image = logoFile
