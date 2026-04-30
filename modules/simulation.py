@@ -1,15 +1,24 @@
 """
-Simulation lifecycle management and the clock thread.
+Simulation lifecycle management.
 
 ``SimulationRunner`` starts / stops / pauses the simulation.
-``ClockThread`` runs as a background thread to update counts and detect
-the end condition (no more infected agents).
+
+On start:
+  - A ``threading.Barrier(n_zones)`` is created so every zone's frame loop
+	waits for all siblings before advancing to the next frame.
+  - One daemon thread is spawned per zone, targeting ``zone.run_frame_loop``.
+  - A separate clock thread collects stats and drives the UI labels.
+
+On stop:
+  - ``state.is_running`` is set to ``False`` and every zone's ``_running``
+	flag is cleared, which causes all frame loops to exit at their next
+	barrier wait.  The barrier itself is aborted to unblock any waiting threads.
 """
 from __future__ import annotations
 
 import time
 import tkinter.messagebox as tkmb
-from threading import Thread
+from threading import Barrier, BrokenBarrierError, Thread
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,27 +28,44 @@ class SimulationRunner:
 	"""Manages the start / stop / pause lifecycle of all simulation zones."""
 
 	def __init__(self) -> None:
+		self._barrier: Barrier | None = None
+		self._zone_threads: list[Thread] = []
 		self._clock_thread: Thread | None = None
 
 	# Public API
 
 	def start(self, zones: list[SimulationZone]) -> None:
-		from modules.agent import AgentType
 		from modules.state import state
 
 		state.is_running = True
+		state.reset_data()
 
-		# Start the clock
-		self._clock_thread = Thread(target=self._run_clock, daemon=True)
-		self._clock_thread.start()
+		# One barrier shared by all zone threads
+		self._barrier = Barrier(len(zones))
 
-		# Kick off agent threads for every zone
+		# One thread per zone
+		self._zone_threads = []
 		for zone in zones:
-			for agent in zone.agents:
-				if agent.type != AgentType.DEAD:
-					zone.spawn_thread(agent.run_movement)
-				if agent.type == AgentType.INFECTED:
-					zone.spawn_thread(agent.run_infection)
+			t = Thread(
+				target=zone.run_frame_loop,
+				args=(self._barrier,),
+				daemon=True,
+				name=f"zone-{'quarantine' if zone.is_quarantine else id(zone)}",
+			)
+			zone._thread = t
+			self._zone_threads.append(t)
+
+		# Clock thread (stats + UI updates)
+		self._clock_thread = Thread(
+			target=self._run_clock,
+			daemon=True,
+			name="simulation-clock",
+		)
+
+		# Start everything
+		for t in self._zone_threads:
+			t.start()
+		self._clock_thread.start()
 
 		print("Simulation started.")
 		if state.gui:
@@ -49,10 +75,19 @@ class SimulationRunner:
 		from modules.state import state
 
 		state.is_running = False
-		state.is_paused = False
+		state.is_paused  = False
 
+		# Signal every zone loop to exit
 		for zone in zones:
-			zone.stop_all_threads()
+			zone.stop()
+
+		# Abort the barrier so any thread currently blocked in barrier.wait()
+		# receives a BrokenBarrierError and exits cleanly
+		if self._barrier is not None:
+			self._barrier.abort()
+			self._barrier = None
+
+		self._zone_threads.clear()
 
 		print("Simulation stopped.")
 		if state.gui:
@@ -64,14 +99,15 @@ class SimulationRunner:
 	def _run_clock(self) -> None:
 		from modules.state import state
 
-		cfg = state.config
+		cfg	= state.config
 		frame_time = 0
 		state.frame_time = 0
-		state.reset_data()
 		did_auto_pause = False
 
 		while state.is_running:
-			# Collect per-frame snapshot
+			_wait_if_paused()
+
+			# Collect counts
 			sane_count = state.total_count("Sane")
 			infected_count = state.total_count("Infected")
 			immune_count = state.total_count("Immune")
@@ -80,7 +116,7 @@ class SimulationRunner:
 			if state.gui:
 				state.gui.update_counts(sane_count, infected_count, immune_count, dead_count)
 
-			# Build per-simulation snapshot for the graph module
+			# Per-simulation snapshot for the graph module
 			if state.simulations:
 				frame_data = [
 					{
@@ -94,35 +130,35 @@ class SimulationRunner:
 				]
 				state.add_frame_data(frame_data)
 
+			# Time label
 			if state.gui:
 				state.gui.set_time_label(
-					f"Frames : {frame_time} | Time (in-simulation) : {int(frame_time / cfg.framerate)}s"
+					f"Frames : {frame_time} | "
+					f"Time (in-simulation) : {int(frame_time / cfg.framerate)}s"
 				)
 
-			# Auto-pause when infection is cleared
+			# Auto-pause when no infected agents remain
 			if infected_count <= 0 and not did_auto_pause and not state.is_paused:
-				from modules.gui import Application
 				did_auto_pause = True
 				if state.gui:
 					state.gui.pause_or_resume()
 				tkmb.showinfo(
 					"Out of infected agents.",
-					"There are no more infected agents. The simulation was automatically paused.",
+					"There are no more infected agents. "
+					"The simulation was automatically paused.",
 				)
 
-			_wait_if_paused()
 			time.sleep(1 / cfg.framerate)
-			frame_time += 1
+			frame_time	  += 1
 			state.frame_time = frame_time
 
 
-# Module helpers
+# Helpers
 
 def _wait_if_paused() -> None:
 	from modules.state import state
 	while state.is_paused:
-		time.sleep(0.1)
-
+		time.sleep(0.05)
 
 # Module-level singleton used by the GUI
 runner = SimulationRunner()

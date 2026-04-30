@@ -1,12 +1,15 @@
 """
-``SimulationZone`` wraps a Tkinter canvas together with its agent lists
-and worker threads.  It replaces the raw ``dict`` used throughout the
-original codebase.
+``SimulationZone`` wraps a Tkinter canvas together with its agent lists.
+
+One worker thread is assigned per zone at simulation start.  Each frame
+the thread calls ``move()`` then ``infect()`` on every agent, then waits
+at a shared ``threading.Barrier`` so all zones stay in lock-step.
 """
 from __future__ import annotations
 
 import random
-from threading import Thread
+import time
+from threading import Barrier, Thread
 from typing import TYPE_CHECKING
 
 import tkinter as tk
@@ -17,10 +20,10 @@ if TYPE_CHECKING:
 
 class SimulationZone:
 	"""
-	One simulation canvas plus bookkeeping for agents and threads.
+	One simulation canvas plus bookkeeping for agents and the zone thread.
 
 	Agent lists are plain Python lists so iteration order is stable and
-	list semantics (remove, append, ``in``) work as expected everywhere.
+	list semantics (remove, append, ``in``) work everywhere.
 	"""
 
 	def __init__(self, canvas: tk.Canvas, is_quarantine: bool = False) -> None:
@@ -35,8 +38,78 @@ class SimulationZone:
 		self.immune: list[Agent] = []
 		self.dead: list[Agent] = []
 
-		# Background threads spawned for this zone
-		self.threads: list[Thread] = []
+		# The single worker thread for this zone (set by SimulationRunner.start)
+		self._thread: Thread | None = None
+		self._running: bool = False
+
+		# Agents that became infected mid-frame and need their infection oval
+		# created at the top of the next infect pass (avoids mutating self.sane
+		# while we are iterating over it in infect()).
+		self._pending_infect: list[Agent] = []
+
+	# Zone thread
+
+	def run_frame_loop(self, barrier: Barrier) -> None:
+		"""
+		Thread target.  Runs the simulation loop for this zone:
+
+		1. Move all agents.
+		2. Flush pending-infect queue (Sane → Infected transitions).
+		3. Run infection logic on every infected agent.
+		4. Wait at the barrier until all other zones finish the same frame.
+		"""
+		from modules.state import state
+
+		cfg = state.config
+		self._running = True
+
+		while state.is_running and self._running:
+			_wait_if_paused()
+
+			# Step 1: move
+			for agent in list(self.agents):
+				agent.move()
+
+			# Step 2: flush newly infected agents
+			for agent in self._pending_infect:
+				_list_remove(self.sane, agent)
+				if agent not in self.infected:
+					self.infected.append(agent)
+				agent._type.__class__  # ensure import is resolved
+				from modules.agent import AgentType
+				agent._type = AgentType.INFECTED
+				self.canvas.itemconfig(agent.model, fill=agent._current_color)
+			self._pending_infect.clear()
+
+			# Step 3: infect
+			for agent in list(self.infected):
+				agent.infect()
+
+			# Step 4: barrier
+			try:
+				barrier.wait()
+			except Exception:
+				# Barrier broken (e.g. simulation stopped) — exit cleanly
+				break
+
+			time.sleep(1 / cfg.framerate)
+
+	def stop(self) -> None:
+		"""Signal the frame loop to exit."""
+		self._running = False
+
+	# Infection queue
+
+	def begin_infect(self, agent: Agent) -> None:
+		"""
+		Mark a Sane agent as newly infected.
+
+		The actual list transition happens at the top of the next frame so
+		we never mutate ``self.sane`` while ``infect()`` is iterating it.
+		"""
+		from modules.agent import AgentType
+		if agent._type == AgentType.SANE and agent not in self._pending_infect:
+			self._pending_infect.append(agent)
 
 	# Agent registration
 
@@ -58,15 +131,11 @@ class SimulationZone:
 
 	def immunize(self, agent: Agent) -> None:
 		"""Transition *agent* to the Immune state."""
-		from modules.agent import AgentType, _list_remove
+		from modules.agent import AgentType
 
-		if agent in self.dead:
+		if agent in self.dead or agent in self.immune:
 			return
-		if agent not in self.immune:
-			self.immune.append(agent)
-		else:
-			return  # already immune — avoid double-processing
-
+		self.immune.append(agent)
 		agent._type = AgentType.IMMUNE
 		self.canvas.itemconfig(agent.model, fill="green")
 		_list_remove(self.sane, agent)
@@ -74,12 +143,11 @@ class SimulationZone:
 
 	def kill(self, agent: Agent) -> None:
 		"""Transition *agent* to the Dead state."""
-		from modules.agent import AgentType, _list_remove
+		from modules.agent import AgentType
 
 		if agent in self.dead:
 			return
 		self.dead.append(agent)
-
 		agent._type = AgentType.DEAD
 		self.canvas.itemconfig(agent.model, fill="grey")
 		self.canvas.tag_lower(agent.model)
@@ -94,36 +162,24 @@ class SimulationZone:
 		destination: SimulationZone,
 	) -> None:
 		"""
-		Remove *agent* from this zone and spawn an equivalent new agent
-		in *destination*, complete with fresh movement / infection threads.
-
-		The new agent's ``run_movement`` receives ``self`` as *origin_zone*
-		so that quarantined agents can find their way back once cured.
+		Remove *agent* from this zone and create an equivalent new agent in
+		*destination*.  The new agent carries ``self`` as its ``origin_zone``
+		so quarantined agents can return once they recover.
 		"""
-		from modules.agent import AgentType, _list_remove
-		from modules.state import state
-
-		agent_type = agent.type
+		agent_type  = agent.type
 		symptomless = agent.is_symptomless
 
 		# Remove from every list in this zone
 		for lst in (self.sane, self.infected, self.immune, self.dead, self.agents):
 			_list_remove(lst, agent)
 
-		# Delete canvas items; any threads still using them will hit ValueError
-		# and exit naturally.
+		# Delete canvas items (the frame loop may attempt coords() on them
+		# and will get a ValueError, which each method handles gracefully)
 		self.canvas.delete(agent.model)
-		if agent.infection_zone is not None:
-			self.canvas.delete(agent.infection_zone)
-			agent.infection_zone = None
+		agent._clear_infection_zone()
 
-		# Spawn replacement in destination
-		new_agent = destination.spawn_agent(agent_type, symptomless)
-
-		if state.is_running and new_agent.type != AgentType.DEAD:
-			destination.spawn_thread(new_agent.run_movement, (self,))
-			if new_agent.type == AgentType.INFECTED:
-				destination.spawn_thread(new_agent.run_infection)
+		# Spawn equivalent agent in the destination zone
+		destination.spawn_agent(agent_type, symptomless, origin_zone=self)
 
 	# Agent factory
 
@@ -131,6 +187,8 @@ class SimulationZone:
 		self,
 		agent_type: AgentType,
 		is_symptomless: bool | None = None,
+		*,
+		origin_zone: SimulationZone | None = None,
 	) -> Agent:
 		"""Create and register a new agent of *agent_type* at a random position."""
 		from modules.agent import Agent
@@ -149,17 +207,18 @@ class SimulationZone:
 			symptomless = is_symptomless
 
 		# Agent.__init__ calls self._register(agent) automatically
-		return Agent(self, x, y, agent_type, symptomless)
+		return Agent(self, x, y, agent_type, symptomless, origin_zone=origin_zone)
 
-	# Thread management
 
-	def spawn_thread(self, func, args: tuple = ()) -> Thread:
-		"""Start a daemon thread, register it, and return it."""
-		t = Thread(target=func, args=args, daemon=True)
-		t.start()
-		self.threads.append(t)
-		return t
+# Helpers
 
-	def stop_all_threads(self) -> None:
-		"""Clear the thread list (signals all thread loops to exit)."""
-		self.threads.clear()
+def _list_remove(lst: list[Agent], agent: Agent) -> None:
+	try:
+		lst.remove(agent)
+	except ValueError:
+		pass
+
+def _wait_if_paused() -> None:
+	from modules.state import state
+	while state.is_paused:
+		time.sleep(0.05)

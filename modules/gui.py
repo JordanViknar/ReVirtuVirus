@@ -85,10 +85,10 @@ class Application(tk.Tk):
 		style = ttk.Style(self)
 		style.theme_use("vista" if "win" in sys.platform else "clam")
 
-	# ── Widget layout ─────────────────────────────────────────────────────────
+	# Widget layout
 
 	def _build_layout(self) -> None:
-		# ── Top section: simulation canvases (right) + control panel (left) ──
+		# Top section: simulation canvases (right) + control panel (left)
 		top = _frame(self, tk.TOP, fill="both", expand=True)
 
 		# Canvas area
