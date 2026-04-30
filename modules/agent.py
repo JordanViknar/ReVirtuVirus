@@ -293,7 +293,7 @@ class Agent:
 				pass
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# Helpers
 
 def _list_remove(lst: list[Agent], agent: Agent) -> None:
 	try:

@@ -269,7 +269,7 @@ class Application(tk.Tk):
 		active_count = n - (1 if cfg.is_last_simulation_quarantine and n > 1 else 0)
 		self.minsize(
 			int(w * min(5, n) + 200),
-			max(int(h * (row + 1) + 55), WINDOW_HEIGHT),
+			max(int(h * row + 55), WINDOW_HEIGHT),
 		)
 
 		# Update buttons
