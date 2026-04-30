@@ -51,7 +51,7 @@ def _frame(
 # Application window
 
 class Application(tk.Tk):
-	"""Root window of VirtuVirus."""
+	"""Root window of ReVirtuVirus."""
 
 	_ENABLE_DEBUG_BUTTONS: bool = False
 
@@ -67,10 +67,10 @@ class Application(tk.Tk):
 	# Window initialisation
 
 	def _setup_window(self) -> None:
-		self.title("VirtuVirus")
-		self.iconname("VirtuVirus")
-		self.wm_title("VirtuVirus")
-		self.wm_iconname("VirtuVirus")
+		self.title("ReVirtuVirus")
+		self.iconname("ReVirtuVirus")
+		self.wm_title("ReVirtuVirus")
+		self.wm_iconname("ReVirtuVirus")
 		self.minsize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
 		if "win" in sys.platform and "darwin" not in sys.platform:
@@ -106,7 +106,7 @@ class Application(tk.Tk):
 		)
 		self._logo_ref = ImageTk.PhotoImage(logo_img)
 		tk.Label(ctrl, image=self._logo_ref).pack(side=tk.TOP)
-		ttk.Label(ctrl, text="VirtuVirus", font=("Helvetica", 20)).pack(side=tk.TOP, pady=(0, 20))
+		tk.Label(ctrl, text="ReVirtuVirus", font=("Helvetica", 20)).pack(side=tk.TOP, pady=(0, 20))
 
 		# Simulation buttons
 		sim_ctrl = _frame(ctrl, tk.TOP, padding=(5, 5, 5, 5), ipady=10)

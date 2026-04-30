@@ -1,10 +1,10 @@
-# VirtuVirus
+# ReVirtuVirus
 
-![VirtuVirus Logo](./assets/icon.ico)
+![ReVirtuVirus Logo](./assets/icon.ico)
 
-Virus Simulator in Python *(ETIS Internship Project, organized by CY Tech and CY Cergy Paris Université)*.
+Virus Simulator in Python.
 
-Made by [JordanViknar](https://github.com/JordanViknar) and [Charx19](https://github.com/Charx19).
+Made by [JordanViknar](https://github.com/JordanViknar).
 
 ## Summary
 
@@ -16,36 +16,27 @@ Made by [JordanViknar](https://github.com/JordanViknar) and [Charx19](https://gi
 
 ## How to download ?
 
-The releases of VirtuVirus can be downloaded [here](https://github.com/VirtuVirus/VirtuVirus/releases).
+The releases of ReVirtuVirus can be downloaded [here](https://github.com/JordanViknar/ReVirtuVirus/releases).
 
-These executables come from the automatic packaging done on GitHub Actions with PyInstaller. Upon being started, they will automatically extract themselves in your system's temporary files, and start VirtuVirus using the bundled Python interpreter. It works in a similar way to AppImage binaries on Linux.
-Additionally, on Windows, the VirtuVirus executable will also decompress itself, since compression is enabled using UPX to reduce its size.
+These executables come from the automatic packaging done on GitHub Actions with PyInstaller. Upon being started, they will automatically extract themselves in your system's temporary files, and start ReVirtuVirus using the bundled Python interpreter. It works in a similar way to AppImage binaries on Linux.
+Additionally, on Windows, the ReVirtuVirus executable will also decompress itself, since compression is enabled using UPX to reduce its size.
 
 Currently, the executables provided are for Windows and Linux. MacOS & other operating systems are not supported (yet ?).
 
 In the event you cannot/don't want to use them, it is also completely possible to manually run the Python code straight from source.
 
 ## Requirements (when using source)
-- *Python 3.10*
-- *Tkinter (with the Ttk module)*
-- *pip (optional, use it to install the other dependencies)*
-- *Matplotlib*
-- *Pillow*
-
-To install the necessary dependencies, you can use the following command, if *pip* is properly setup on your system :
-```
-pip install -r requirements.txt
-```
+- *uv*
 
 ## How do I use it ?
 
 When running from source, go to the root of the folder and run in a terminal :
 ```
-python3 VirtuVirus.py
+uv run launch.py
 ```
 When using an executable, run it as you usually would run one on your system. The executables will need to unpack their dependencies (and decompress them on Windows), so **allow some time for them to load**.
 
-Following these steps, you'll be able to access and use the VirtuVirus interface. Here's the buttons available and what they do :
+Following these steps, you'll be able to access and use the ReVirtuVirus interface. Here's the buttons available and what they do :
 - **Start** : This button will start the simulation upon being pressed, you'll need to have them spawned using *"Modify Settings"* first.
 - **Stop** : This button will permanently stop the currently running simulation if pressed. You won't be able to resume it, and you'll have to clear it before starting a new simulation.
 - **Pause/Resume** : This button allows you to pause the simulation, or to resume it if it's already paused.
@@ -61,19 +52,6 @@ As of now, the current types of agents are :
 Additionally, agents can take other colors under certain conditions :
 - 🟣 **Infected (Symptomless)** : If *"Enable symptomless agents"* is enabled, some agents will be defined as "Symptomless" upon spawning. That means that if they become Infected, they will never be taken to Quarantine. Symtomless agents also cannot die, and so the only outcome for them is to become immune eventually.
 - 🟡 **Central travel** : If *"Make central travel obvious"* is enabled in the settings, any type of agent currently performing central travelling will temporarily use this color instead. This makes it extremely easy to notice agents using this behavior.
-
-## F.A.Q
-
-### Both the program and the source refuse to run on Linux when using Wayland.
-
-Your terminal is incompatible. Use another terminal.
-
-Known incompatible terminals :
-- xfce4-terminal
-
-### The interface is frozen, what can I do ?
-
-*VirtuVirus* can be an heavy program to run, to the point where the interface can freeze if the simulation becomes too intense for your processor. In case that happens, *VirtuVirus* will always automatically pause the simulation when there are no more infected agents : this allows the interface to eventually catch up with the simulation, unfreezing the program and allowing you to generate a graph.
 
 ## Bug Reports / Contributions / Suggestions
 You can report bugs or suggest features by making an issue, or you can contribute to this program directly by forking it and then sending a pull request. Any help will be very much appreciated. Thank you for your time.
