@@ -1,143 +1,134 @@
-# External Imports
-from matplotlib import use as mpl_use
-mpl_use('TkAgg')
+"""
+Graph generation for post-run analysis.
+
+``GraphGenerator.generate()`` reads the collected frame data from
+``AppState`` and plots it with Matplotlib.
+"""
+from __future__ import annotations
+
+from matplotlib import use as _mpl_use
+_mpl_use("TkAgg")
+
 import matplotlib.pyplot as plt
 
-# Internal Imports
-from modules import sharedData
 
-def generateGraph(dataType, graphType, selectedSimulations, selectedAgents, timeFormat):
-	plt.close()
+class GraphGenerator:
+	"""Builds and shows a Matplotlib figure from collected simulation data."""
 
-	if selectedSimulations == []:
-		return
-	
-	saneData = []
-	infectedData = []
-	immuneData = []
-	deadData = []
-	
-	data = sharedData.retrieveData()
+	# Agent categories in a consistent order
+	CATEGORIES: tuple[str, ...] = ("Sane", "Infected", "Immune", "Dead")
+	COLORS: dict[str, str] = {
+		"Sane": "blue",
+		"Infected": "red",
+		"Immune": "green",
+		"Dead": "black",
+	}
 
-	# We organize the data according to the selected method.
-	if dataType == 'total' or dataType == 'mean':
-		for frame in data:
-			tempSane = 0
-			tempInfected = 0
-			tempImmune = 0
-			tempDead = 0
+	def generate(
+		self,
+		data_type: str,		   # "total" | "mean"
+		graph_type: str,		  # "line" | "bar" | "sum"
+		selected_simulations: list[int],
+		selected_agents: dict[str, bool],
+		time_format: str,		 # "frames" | "seconds"
+	) -> None:
+		"""Build and display the requested graph. Does nothing if no simulations selected."""
+		from modules.state import state
 
-			for simulationCount in frame:
-				if simulationCount["Index"] in selectedSimulations:
-					tempSane += simulationCount["Sane"]
-					tempInfected += simulationCount["Infected"]
-					tempImmune += simulationCount["Immune"]
-					tempDead += simulationCount["Dead"]
-			
-			if dataType == "total":
-				saneData.append(tempSane)
-				infectedData.append(tempInfected)
-				immuneData.append(tempImmune)
-				deadData.append(tempDead)
-			elif dataType == "mean":
-				saneData.append(tempSane/len(selectedSimulations))
-				infectedData.append(tempInfected/len(selectedSimulations))
-				immuneData.append(tempImmune/len(selectedSimulations))
-				deadData.append(tempDead/len(selectedSimulations))
-	
-	# If the time format is 'seconds', we need to convert the data to seconds.
-	framerate = sharedData.getVarInConfig("framerate")
-	if timeFormat == 'seconds':
-		tempSaneData = []
-		tempInfectedData = []
-		tempImmuneData = []
-		tempDeadData = []
-		for i in range(0,len(saneData),framerate):
-			tempSaneVar = 0
-			tempInfectedVar = 0
-			tempImmuneVar = 0
-			tempDeadVar = 0
-			try:
-				altDivider = 0
-				for j in range(i,i+framerate):
-					tempSaneVar += saneData[j]/framerate
-					tempInfectedVar += infectedData[j]/framerate
-					tempImmuneVar += immuneData[j]/framerate
-					tempDeadVar += deadData[j]/framerate
-					altDivider += 1
-			except IndexError:
-				tempSaneVar *= framerate/altDivider
-				tempInfectedVar *= framerate/altDivider
-				tempImmuneVar *= framerate/altDivider
-				tempDeadVar *= framerate/altDivider
-			tempSaneData.append(tempSaneVar)
-			tempInfectedData.append(tempInfectedVar)
-			tempImmuneData.append(tempImmuneVar)
-			tempDeadData.append(tempDeadVar)
-		saneData = tempSaneData
-		infectedData = tempInfectedData
-		immuneData = tempImmuneData
-		deadData = tempDeadData
-	
-	# We display it with the asked method.
-	match graphType:
-		case 'line':
-			if selectedAgents["Sane"]:
-				plt.plot(saneData, label="Sane", color="blue")
-			if selectedAgents["Infected"]:
-				plt.plot(infectedData, label="Infected", color="red")
-			if selectedAgents["Immune"]:
-				plt.plot(immuneData, label="Immune", color="green")
-			if selectedAgents["Dead"]:
-				plt.plot(deadData, label="Dead", color="black")
-		case 'bar':
-			if selectedAgents["Sane"]:
-				plt.bar(range(len(saneData)), saneData, label="Sane", color="blue")
-			if selectedAgents["Infected"]:
-				plt.bar(range(len(infectedData)), infectedData, label="Infected", color="red")
-			if selectedAgents["Immune"]:
-				plt.bar(range(len(immuneData)), immuneData, label="Immune", color="green")
-			if selectedAgents["Dead"]:
-				plt.bar(range(len(deadData)), deadData, label="Dead", color="black")
-		case 'sum':
-			agents = []
-			labels = []
-			colors = []
-			if selectedAgents["Sane"]:
-				agents.append(saneData)
-				labels.append("Sane")
-				colors.append("blue")
-			if selectedAgents["Infected"]:
-				agents.append(infectedData)
-				labels.append("Infected")
-				colors.append("red")
-			if selectedAgents["Immune"]:
-				agents.append(immuneData)
-				labels.append("Immune")
-				colors.append("green")
-			if selectedAgents["Dead"]:
-				agents.append(deadData)
-				labels.append("Dead")
-				colors.append("black")
+		if not selected_simulations:
+			return
 
-			plt.stackplot(range(len(saneData)), agents, labels=labels, colors=colors)
-	plt.legend()
+		plt.close()
 
-	match dataType:
-		case 'total':
-			plt.ylabel("Population")
-			title = "Agent population"
-		case 'mean':
-			plt.ylabel("Mean of the agent populations")
-			title = "Mean of the agent populations"
-	
-	match timeFormat:
-		case 'frames':
-			plt.xlabel("Frames")
-			title += " over time (in frames)"
-		case 'seconds':
-			plt.xlabel("Seconds (in-simulation)")
-			title += " over time (in simulation seconds)"
+		raw = state.get_collected_data()
+		series = self._aggregate(raw, data_type, selected_simulations)
 
-	plt.title(title)
-	plt.show()
+		if time_format == "seconds":
+			series = self._resample_to_seconds(series, state.config.framerate)
+
+		self._plot(graph_type, series, selected_agents)
+		self._label_axes(data_type, time_format)
+		plt.show()
+
+	# Private helpers
+
+	def _aggregate(
+		self,
+		raw: list[list[dict[str, int]]],
+		data_type: str,
+		selected: list[int],
+	) -> dict[str, list[float]]:
+		"""Sum (or average) agent counts across selected simulations per frame."""
+		series: dict[str, list[float]] = {c: [] for c in self.CATEGORIES}
+
+		for frame in raw:
+			totals = {c: 0 for c in self.CATEGORIES}
+			for sim_data in frame:
+				if sim_data["Index"] in selected:
+					for cat in self.CATEGORIES:
+						totals[cat] += sim_data[cat]
+
+			divisor = len(selected) if data_type == "mean" else 1
+			for cat in self.CATEGORIES:
+				series[cat].append(totals[cat] / divisor)
+
+		return series
+
+	def _resample_to_seconds(
+		self,
+		series: dict[str, list[float]],
+		framerate: int,
+	) -> dict[str, list[float]]:
+		"""Collapse per-frame data into per-second averages."""
+		result: dict[str, list[float]] = {c: [] for c in self.CATEGORIES}
+		n = len(series[self.CATEGORIES[0]])
+
+		for i in range(0, n, framerate):
+			chunk = range(i, min(i + framerate, n))
+			count = len(chunk)
+			for cat in self.CATEGORIES:
+				avg = sum(series[cat][j] for j in chunk) / count
+				result[cat].append(avg)
+
+		return result
+
+	def _plot(
+		self,
+		graph_type: str,
+		series: dict[str, list[float]],
+		selected: dict[str, bool],
+	) -> None:
+		active_cats = [c for c in self.CATEGORIES if selected.get(c)]
+		x = range(len(series[self.CATEGORIES[0]]))
+
+		match graph_type:
+			case "line":
+				for cat in active_cats:
+					plt.plot(series[cat], label=cat, color=self.COLORS[cat])
+
+			case "bar":
+				for cat in active_cats:
+					plt.bar(x, series[cat], label=cat, color=self.COLORS[cat])
+
+			case "sum":
+				stacks = [series[c] for c in active_cats]
+				labels = active_cats
+				colors = [self.COLORS[c] for c in active_cats]
+				plt.stackplot(x, stacks, labels=labels, colors=colors)
+
+		plt.legend()
+
+	def _label_axes(self, data_type: str, time_format: str) -> None:
+		y_label, title_base = {
+			"total": ("Population", "Agent population"),
+			"mean":  ("Mean agent population", "Mean of the agent populations"),
+		}[data_type]
+
+		x_label, title_suffix = {
+			"frames":  ("Frames", "over time (in frames)"),
+			"seconds": ("Seconds (in-simulation)", "over time (in simulation seconds)"),
+		}[time_format]
+
+		plt.ylabel(y_label)
+		plt.xlabel(x_label)
+		plt.title(f"{title_base} {title_suffix}")
