@@ -1,0 +1,8 @@
+[project]
+name = "revirtuvirus"
+version = "2.0.0-dev"
+requires-python = ">=3.14"
+dependencies = [
+    "matplotlib>=3.10.9",
+    "pillow>=12.2.0",
+]
